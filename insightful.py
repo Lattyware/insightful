@@ -80,7 +80,7 @@ class Insight:
         if self.attribute_assignment:
             @wraps(self.original_setattr)
             def setattr_wrapper(instance_self, name, value):
-                description = "{}.{} = value".format(instance_self, name, value)
+                description = "{}.{} = {}".format(instance_self, name, value)
                 self.stack.append(description)
                 self.original_setattr(instance_self, name, value)
                 self.stack.pop()
@@ -127,28 +127,3 @@ class Insight:
         self.target.__getattribute__ = self.original_getattribute
         self.target.__setattr__ = self.original_setattr
         self.target.__delattr__ = self.original_delattr
-
-class Test:
-    def __init__(self):
-        self.value = 0
-        self.useless = 0
-
-    def test(self):
-        return 1
-
-    def whoops(self, arg):
-        raise Exception("Oh No!")
-
-    @property
-    def property(self):
-        return self.test() + self.whoops(self.value)
-
-    def __repr__(self):
-        return "Test()"
-
-test = Test()
-with Insight(Test):
-    test.value += 1
-    test.test()
-    del test.useless
-    test.property

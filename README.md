@@ -38,7 +38,7 @@ Produces:
 
 ```
 Insight: Test().value -> 0
-Insight: Test().value = value
+Insight: Test().value = 1
 Insight: Test().test(self=Test()) -> 1
 Insight: del Test().useless
 Insight: Test().test(self=Test()) -> 1
