@@ -4,6 +4,7 @@
 malfunctioning class or instance and it will spew out every interaction with
 it. Gain some insight."""
 
+from contextlib import contextmanager
 from functools import wraps
 import inspect
 
@@ -37,7 +38,12 @@ class Insight:
                                    True.
         :param prefix: The prefix for all output.
         """
-        self.target = target
+        if isinstance(target, type):
+            self.target = target
+            self.instance = None
+        else:
+            self.target = type(target)
+            self.instance = target
         self.function_calls = function_calls
         self.attribute_access = attribute_access
         self.attribute_assignment = attribute_assignment
@@ -47,11 +53,22 @@ class Insight:
         self.original_getattribute = None
         self.original_setattr = None
         self.original_delattr = None
-        self.stack = []
-        self.done = False
+        self._stack = []
+        self._done = False
+        self._guarded = False
 
     def _print(self, message):
         print("{}{}".format(self.prefix, message))
+
+    def _fast_track(self, instance_self):
+        return self._guarded or (self.instance is not None
+                                 and self.instance is not instance_self)
+
+    @contextmanager
+    def _recursion_guard(self):
+        self._guarded = True
+        yield
+        self._guarded = False
 
     def __enter__(self):
         self.original_getattribute = self.target.__getattribute__
@@ -60,70 +77,87 @@ class Insight:
 
         if self.function_calls or self.attribute_access:
             @wraps(self.original_getattribute)
-            def getattribute_wrapper(instance_self, name):
-                description = "{}.{}".format(instance_self, name)
-                self.stack.append(description)
-                value = self.original_getattribute(instance_self, name)
-                self.stack.pop()
-                if (hasattr(value, "__self__") and
-                        value.__self__ is instance_self):
-                    if self.show_method_access:
-                        self._print("{} -> {}".format(description, value))
-                    if self.function_calls:
-                        return self.call_decorator(instance_self, value)
-                else:
-                    if self.attribute_access:
-                        self._print("{} -> {}".format(description, value))
-                return value
+            def getattribute_wrapper(instance, name):
+                if self._fast_track(instance):
+                    return self.original_getattribute(instance, name)
+                with self._recursion_guard():
+                    instance_repr = self.target.__repr__(instance)
+                    description = "{}.{}".format(instance_repr, name)
+                    self._stack.append(description)
+                value = self.original_getattribute(instance, name)
+                with self._recursion_guard():
+                    self._stack.pop()
+                    if (hasattr(value, "__self__") and
+                            value.__self__ is instance):
+                        if self.show_method_access:
+                            self._print("{} -> {}".format(description, value))
+                        if self.function_calls:
+                            return self.call_decorator(instance_repr, value)
+                    else:
+                        if self.attribute_access:
+                            self._print("{} -> {}".format(description, value))
+                    return value
             self.target.__getattribute__ = getattribute_wrapper
 
         if self.attribute_assignment:
             @wraps(self.original_setattr)
-            def setattr_wrapper(instance_self, name, value):
-                description = "{}.{} = {}".format(instance_self, name, value)
-                self.stack.append(description)
-                self.original_setattr(instance_self, name, value)
-                self.stack.pop()
-                self._print(description)
+            def setattr_wrapper(instance, name, value):
+                if self._fast_track(instance):
+                    return self.original_setattr(instance, name)
+                with self._recursion_guard():
+                    instance_repr = self.target.__repr__(instance)
+                    description = "{}.{} = {}".format(instance_repr, name, value)
+                    self._stack.append(description)
+                self.original_setattr(instance, name, value)
+                with self._recursion_guard():
+                    self._stack.pop()
+                    self._print(description)
             self.target.__setattr__ = setattr_wrapper
 
         if self.attribute_deletion:
             @wraps(self.original_delattr)
-            def delattr_wrapper(instance_self, name):
-                description = "del {}.{}".format(instance_self, name)
-                self.stack.append(description)
-                self.original_delattr(instance_self, name)
-                self.stack.pop()
-                self._print(description)
+            def delattr_wrapper(instance, name):
+                if self._fast_track(instance):
+                    return self.original_delattr(instance, name)
+                with self._recursion_guard():
+                    instance_repr = self.target.__repr__(instance)
+                    description = "del {}.{}".format(instance_repr, name)
+                    self._stack.append(description)
+                self.original_delattr(instance, name)
+                with self._recursion_guard():
+                    self._stack.pop()
+                    self._print(description)
             self.target.__delattr__ = delattr_wrapper
 
-    def call_decorator(self, instance_self, function):
+    def call_decorator(self, instance_repr, function):
         @wraps(function)
         def wrapper(*args, **kwargs):
-            if self.done:
+            if self._done:
                 return function(*args, **kwargs)
-            arguments = inspect.getcallargs(function, *args, **kwargs)
-            names, varargs, keywords, defaults = inspect.getargspec(
-                function.__func__)
-            description = "{}.{}{}".format(
-                instance_self, function.__name__,
-                inspect.formatargvalues(names, varargs, keywords, arguments))
-            self.stack.append(description)
+            with self._recursion_guard():
+                arguments = inspect.getcallargs(function, *args, **kwargs)
+                names, varargs, keywords, defaults = inspect.getargspec(
+                    function.__func__)
+                description = "{}.{}{}".format(
+                    instance_repr, function.__name__,
+                    inspect.formatargvalues(names, varargs, keywords, arguments))
+                self._stack.append(description)
             value = function(*args, **kwargs)
-            self.stack.pop()
-            self._print("{} -> {}".format(description, value))
-            return value
+            with self._recursion_guard():
+                self._stack.pop()
+                self._print("{} -> {}".format(description, value))
+                return value
         return wrapper
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_val:
-            stack = iter(self.stack)
+            stack = iter(self._stack)
             first = next(stack)
             self._print("{}: {}".format(exc_type.__name__, exc_val))
             self._print("  during: {}".format(first))
             for frame in stack:
                 self._print("  during: {}".format(frame))
-        self.done = True
+        self._done = True
         self.target.__getattribute__ = self.original_getattribute
         self.target.__setattr__ = self.original_setattr
         self.target.__delattr__ = self.original_delattr
