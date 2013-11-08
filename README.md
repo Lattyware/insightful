@@ -68,16 +68,16 @@ Insight(target, function_calls=True, attribute_access=True,
         show_method_access=False, prefix="Insight: ")
 ```
 
- * target: The class or instance to provide insight into.
- * function_calls: Whether to log function calls.
- * attribute_access: Whether to log attribute access.
- * attribute_assignment: Whether to log attribute assignment.
- * attribute_deletion: Whether to log attribute deletion.
- * show_method_access: Whether to log method access - it is
+ * `target`: The class or instance to provide insight into.
+ * `function_calls`: Whether to log function calls.
+ * `attribute_access`: Whether to log attribute access.
+ * `attribute_assignment`: Whether to log attribute assignment.
+ * `attribute_deletion`: Whether to log attribute deletion.
+ * `show_method_access`: Whether to log method access - it is
    impossible to determine if the accessor means to call the method or not, so
    it is assumed they do and the access itself doesn't need to be logged. If you
    need to know about method accesses, rather than just calls, set to True.
- * prefix: The prefix for all output.
+ * `prefix`: The prefix for all output.
 
 This all works by injecting `__getattribute__()`, `__setattr__()` and
 `__delattr__()` methods, and decorating functions. This means that it will not
