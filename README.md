@@ -32,7 +32,11 @@ with Insight(Test):
     test.test()
     del test.useless
     test.property
+```
 
+Produces:
+
+```
 Insight: Test().value -> 0
 Insight: Test().value = value
 Insight: Test().test(self=Test()) -> 1
